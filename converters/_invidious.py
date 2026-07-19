@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Optional
 
 import tokens as token_utils
+from converters._formatting import parse_relative_time
 from converters._helpers import (
     _convert_invidious_thumbnail_to_proxy,
     _enrich_audio_display_name,
@@ -364,6 +365,15 @@ def invidious_to_video_list_item(info: dict, invidious_base_url: str = "") -> Vi
     # Validate timestamp - reject epoch/invalid values that cause "56 years ago"
     if published is not None and published <= MIN_VALID_TIMESTAMP:
         published = None
+
+    # InnerTube listings only carry relative text ("2 days ago") - derive an
+    # approximate timestamp from it when upstream sent no published value at
+    # all. If an explicit value was sent but rejected as garbage, the text is
+    # not trusted either.
+    if published is None and info.get("published") is None:
+        published = parse_relative_time(info.get("publishedText"))
+        if published is not None and published <= MIN_VALID_TIMESTAMP:
+            published = None
 
     # Only use publishedText if published is valid (avoid "56 years ago" from bad data)
     published_text = info.get("publishedText") if published else None

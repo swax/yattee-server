@@ -886,6 +886,28 @@ class TestInvidiousToVideoListItem:
         assert result.published == 1700000000
         assert result.publishedText == "2 months ago"
 
+    def test_relative_text_derives_published(self):
+        """Test that publishedText alone (InnerTube listings) yields a timestamp."""
+        info = {
+            "videoId": "abc123",
+            "title": "Test",
+            "publishedText": "2 days ago",
+        }
+        result = invidious_to_video_list_item(info, "")
+        assert result.published is not None
+        assert result.publishedText == "2 days ago"
+
+    def test_garbage_relative_text_rejected(self):
+        """Test that publishedText landing before 2005 is rejected."""
+        info = {
+            "videoId": "abc123",
+            "title": "Test",
+            "publishedText": "56 years ago",
+        }
+        result = invidious_to_video_list_item(info, "")
+        assert result.published is None
+        assert result.publishedText is None
+
     def test_boundary_published_rejected(self):
         """Test that timestamp exactly at boundary (Jan 1, 2005) is rejected."""
         info = {

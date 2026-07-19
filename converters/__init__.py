@@ -12,6 +12,7 @@ from converters._formatting import (
     format_subscriber_count,
     format_view_count,
     get_valid_timestamp,
+    parse_relative_time,
     parse_upload_date,
 )
 from converters._helpers import (
@@ -52,6 +53,7 @@ __all__ = [
     "_convert_invidious_thumbnail_to_proxy",
     # _formatting
     "parse_upload_date",
+    "parse_relative_time",
     "get_valid_timestamp",
     "format_published_text",
     "format_view_count",

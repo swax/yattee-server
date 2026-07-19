@@ -6,7 +6,7 @@ Uses YouTube's InnerTube /browse endpoint to fetch categorized content.
 import logging
 from typing import Any, Dict, List, Optional
 
-from innertube._client import _build_context, _get_client_version, innertube_post
+from innertube._client import InnerTubeError, _build_context, _get_client_version, innertube_post
 from innertube._converters import (
     _parse_count_text,
     grid_playlist_to_invidious,
@@ -35,6 +35,37 @@ TRENDING_BROWSE_PARAMS = {
     "livestreams": ("UC4R8DWoMoI7CAwX8_LjQHig", "EgdsaXZldGFikgEDCKEK"),
     "gaming": ("UCOpNcN46UbXVtpKMrmU4Abg", "Egh0cmVuZGluZw%3D%3D"),
 }
+
+
+# Cache of resolved @handle -> UC... channel IDs
+_handle_cache: Dict[str, str] = {}
+
+
+async def _resolve_browse_id(channel_id: str) -> str:
+    """Resolve a channel handle (@name) to a UC... browse ID.
+
+    YouTube's /browse endpoint no longer accepts handles as browseId
+    (returns HTTP 400), so handles must be resolved via
+    navigation/resolve_url first. Resolved IDs are cached in-process.
+    """
+    if not channel_id.startswith("@"):
+        return channel_id
+
+    cached = _handle_cache.get(channel_id)
+    if cached:
+        return cached
+
+    data = await innertube_post(
+        "navigation/resolve_url",
+        {"url": f"https://www.youtube.com/{channel_id}"},
+    )
+    browse_id = data.get("endpoint", {}).get("browseEndpoint", {}).get("browseId", "")
+    if not browse_id.startswith("UC"):
+        raise InnerTubeError(f"Could not resolve handle {channel_id} to a channel ID")
+
+    _handle_cache[channel_id] = browse_id
+    logger.info(f"[InnerTube] Resolved handle {channel_id} -> {browse_id}")
+    return browse_id
 
 
 def _extract_items_from_tab(data: Dict[str, Any]) -> tuple[List[Dict], Optional[str]]:
@@ -190,7 +221,7 @@ async def get_channel_videos(
         items, next_cont = _extract_items_from_continuation(data)
     else:
         body = {
-            "browseId": channel_id,
+            "browseId": await _resolve_browse_id(channel_id),
             "params": CHANNEL_TAB_PARAMS["videos"],
         }
         data = await innertube_post("browse", body)
@@ -210,7 +241,7 @@ async def get_channel_shorts(
         items, next_cont = _extract_items_from_continuation(data)
     else:
         body = {
-            "browseId": channel_id,
+            "browseId": await _resolve_browse_id(channel_id),
             "params": CHANNEL_TAB_PARAMS["shorts"],
         }
         data = await innertube_post("browse", body)
@@ -229,7 +260,7 @@ async def get_channel_streams(
         items, next_cont = _extract_items_from_continuation(data)
     else:
         body = {
-            "browseId": channel_id,
+            "browseId": await _resolve_browse_id(channel_id),
             "params": CHANNEL_TAB_PARAMS["streams"],
         }
         data = await innertube_post("browse", body)
@@ -248,7 +279,7 @@ async def get_channel_playlists(
         items, next_cont = _extract_items_from_continuation(data)
     else:
         body = {
-            "browseId": channel_id,
+            "browseId": await _resolve_browse_id(channel_id),
             "params": CHANNEL_TAB_PARAMS["playlists"],
         }
         data = await innertube_post("browse", body)
@@ -266,7 +297,7 @@ async def get_channel_info(channel_id: str) -> Optional[Dict[str, Any]]:
     Returns:
         Dict with channel metadata, or None if not available
     """
-    body = {"browseId": channel_id}
+    body = {"browseId": await _resolve_browse_id(channel_id)}
     data = await innertube_post("browse", body)
 
     # Extract from pageHeaderViewModel
