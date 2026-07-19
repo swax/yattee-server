@@ -149,6 +149,29 @@ class TestSettingsModel:
         assert s.invidious_proxy_captions is True
         assert s.invidious_proxy_thumbnails is True
 
+    def test_yt_ip_family_default_and_validation(self):
+        """Test yt_ip_family defaults to auto and rejects invalid values."""
+        assert Settings().yt_ip_family == "auto"
+        assert Settings(yt_ip_family="ipv4").yt_ip_family == "ipv4"
+        assert Settings(yt_ip_family="ipv6").yt_ip_family == "ipv6"
+
+        with pytest.raises(ValidationError):
+            Settings(yt_ip_family="ipv5")
+
+    def test_effective_ip_family(self):
+        """Test that the egress proxy takes precedence over the forced IP family."""
+        # No proxy: configured family applies
+        assert Settings(yt_ip_family="ipv6").effective_ip_family() == "ipv6"
+        assert Settings(yt_ip_family="auto").effective_ip_family() == "auto"
+
+        # Active proxy overrides the forced family
+        s = Settings(yt_ip_family="ipv6", yt_egress_proxy="http://proxy:8080", yt_egress_proxy_enabled=True)
+        assert s.effective_ip_family() == "auto"
+
+        # Disabled proxy: forced family applies again
+        s = Settings(yt_ip_family="ipv6", yt_egress_proxy="http://proxy:8080", yt_egress_proxy_enabled=False)
+        assert s.effective_ip_family() == "ipv6"
+
     def test_invidious_instance_optional(self):
         """Test that invidious_instance is optional."""
         s = Settings()

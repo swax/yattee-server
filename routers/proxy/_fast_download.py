@@ -18,6 +18,7 @@ from routers.proxy._cleanup import (
 )
 from routers.proxy._streaming import router
 from security import sanitize_command_for_logging
+from settings import get_settings
 from ytdlp_wrapper import (
     YtDlpError,
     extract_url,
@@ -26,6 +27,7 @@ from ytdlp_wrapper import (
     is_valid_url,
     sanitize_extension,
     sanitize_format_id,
+    ytdlp_network_args,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,8 +61,10 @@ async def run_ytdlp_download(
             logger.warning(f"[FastDownload] Failed to get credentials: {e}")
 
         # Build yt-dlp command with resilience options for long downloads
+        s = get_settings()
         cmd = [
-            "yt-dlp",
+            s.ytdlp_path,
+            *ytdlp_network_args(s),  # Egress proxy + forced IP family
             *cred_args,  # Include credential args (cookies, etc.)
             "-f",
             itag,

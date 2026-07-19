@@ -11,6 +11,7 @@ from cryptography.fernet import InvalidToken
 
 import config
 import database
+import egress
 import encryption
 import settings as settings_module
 
@@ -209,10 +210,22 @@ async def get_client() -> httpx.AsyncClient:
     """Get or create the shared HTTP client."""
     global _client
     if _client is None or _client.is_closed:
+        s = settings_module.get_settings()
+        # Proxy and forced IP family are mutually exclusive (httpx drops
+        # local_address when a proxy transport is built), and passing both
+        # proxy= and transport= would shadow the transport entirely —
+        # effective_ip_family() returns "auto" while the proxy is active.
+        network_kwargs = {}
+        proxy = s.effective_yt_egress_proxy()
+        local_addr = egress.local_address_for(s.effective_ip_family())
+        if proxy:
+            network_kwargs["proxy"] = proxy
+        elif local_addr:
+            network_kwargs["transport"] = httpx.AsyncHTTPTransport(local_address=local_addr)
         _client = httpx.AsyncClient(
             timeout=httpx.Timeout(15),
             follow_redirects=True,
-            proxy=settings_module.get_settings().effective_yt_egress_proxy(),
+            **network_kwargs,
             headers={
                 "User-Agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

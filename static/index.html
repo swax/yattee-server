@@ -628,6 +628,15 @@
                         <input type="text" id="yt-egress-proxy" placeholder="http://host:port or socks5://host:port" class="input-base" x-model="yt_egress_proxy" :disabled="!yt_egress_proxy_enabled">
                         <small class="block text-muted text-sm mt-1">Auto-provisioned from <code>YT_EGRESS_PROXY</code> env var if set.</small>
                     </div>
+                    <div class="mb-4">
+                        <label for="yt-ip-family" class="block mb-2 font-medium">YouTube IP Family</label>
+                        <select id="yt-ip-family" class="input-base" x-model="yt_ip_family">
+                            <option value="auto">Auto (default)</option>
+                            <option value="ipv4">Force IPv4</option>
+                            <option value="ipv6">Force IPv6</option>
+                        </select>
+                        <small class="block text-muted text-sm mt-1">Forces the IP family for YouTube traffic (yt-dlp, InnerTube, relay). Useful when your IPv4 is bot-flagged. Ignored while the egress proxy is enabled; forcing a family your host doesn't have breaks playback. Auto-provisioned from <code>YT_IP_FAMILY</code> env var if set.</small>
+                    </div>
                 </div>
 
                 <!-- Search & Other Section -->

@@ -116,6 +116,14 @@ class TestSettingsRepository:
         settings = database.get_settings_row()
         assert settings["invidious_instance"] == "https://invidious.example.com"
 
+    def test_update_settings_yt_ip_family_round_trip(self):
+        """Test that yt_ip_family round-trips as a string."""
+        import database
+
+        database.update_settings({"yt_ip_family": "ipv6"})
+        settings = database.get_settings_row()
+        assert settings["yt_ip_family"] == "ipv6"
+
     def test_update_settings_integer_value(self):
         """Test updating an integer setting."""
         import database

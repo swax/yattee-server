@@ -1,7 +1,7 @@
 """Runtime settings management with database persistence."""
 
 import logging
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -41,6 +41,16 @@ class Settings(BaseModel):
         description=(
             "HTTP/SOCKS proxy for YouTube-bound traffic. "
             "Format: http://[user:pass@]host:port or socks5://host:port"
+        ),
+    )
+    yt_ip_family: Literal["auto", "ipv4", "ipv6"] = Field(
+        default="auto",
+        description=(
+            "Force the IP family for YouTube-bound egress (yt-dlp, InnerTube, "
+            "/proxy/relay). Ignored while the egress proxy is active — the "
+            "proxy's own egress determines the family. Forcing a family the "
+            "host doesn't have breaks playback. Takes precedence over "
+            "HTTP(S)_PROXY environment variables when forced."
         ),
     )
 
@@ -112,6 +122,15 @@ class Settings(BaseModel):
     def effective_yt_egress_proxy(self) -> Optional[str]:
         """Return the egress proxy URL only if both configured and enabled."""
         return self.yt_egress_proxy if self.yt_egress_proxy_enabled and self.yt_egress_proxy else None
+
+    def effective_ip_family(self) -> str:
+        """Return the forced IP family, or "auto" while the egress proxy is active.
+
+        With a proxy, the proxy's egress determines the family; forcing it
+        locally would only affect the hop to the proxy (and httpx silently
+        drops local_address when a proxy is set).
+        """
+        return "auto" if self.effective_yt_egress_proxy() else self.yt_ip_family
 
 
 # In-memory cached settings
