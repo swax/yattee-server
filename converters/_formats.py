@@ -245,7 +245,10 @@ def convert_formats(
         if proxy_mode == "relay" and proxy_base_url and base_url:
             from routers.proxy import signed_relay_url
 
-            url = signed_relay_url(base_url, direct_url)
+            # Googlevideo occasionally labels media responses as text/plain. Carry the
+            # format metadata through the signed URL so the relay can return a browser-
+            # decodable Content-Type instead of relying on the upstream header.
+            url = signed_relay_url(base_url, direct_url, content_type=mime_type)
         elif proxy_mode == "download" and proxy_base_url and video_id:
             if original_url:
                 encoded_url = urllib.parse.quote(original_url, safe="")

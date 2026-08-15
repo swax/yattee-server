@@ -2,6 +2,7 @@
 
 import os
 import sys
+from urllib.parse import parse_qs, urlparse
 
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -703,6 +704,30 @@ class TestConvertFormats:
         ]
         format_streams, _ = convert_formats(formats, video_id="abc123", proxy_base_url="http://localhost:8080/proxy")
         assert "http://localhost:8080/proxy/fast/abc123?itag=18" in format_streams[0].url
+
+    def test_relay_url_carries_browser_media_type(self):
+        """Relay URLs override misleading upstream Content-Type headers with known format metadata."""
+        formats = [
+            {
+                "format_id": "18",
+                "ext": "mp4",
+                "url": "https://example.com/video.mp4",
+                "vcodec": "avc1.42001E",
+                "acodec": "mp4a.40.2",
+            }
+        ]
+
+        format_streams, _ = convert_formats(
+            formats,
+            video_id="abc123",
+            proxy_base_url="http://localhost:8080/proxy",
+            proxy_mode="relay",
+            base_url="http://localhost:8080",
+        )
+
+        parsed = urlparse(format_streams[0].url)
+        assert parsed.path == "/proxy/relay"
+        assert parse_qs(parsed.query)["ct"] == ['video/mp4; codecs="avc1.42001E, mp4a.40.2"']
 
 
 # =============================================================================
