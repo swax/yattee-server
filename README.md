@@ -28,6 +28,19 @@ A self-hosted API server powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp) t
 
 ## Quick Start
 
+### Windows
+
+```powershell
+git clone https://github.com/swax/yattee-server.git
+cd yattee-server
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\start-windows.ps1
+```
+
+Open `http://127.0.0.1:8085` to complete setup. The setup script creates an isolated Python environment, installs Python dependencies, and creates a loopback-only `.env`. It also reports whether Deno or FFmpeg still needs to be installed and added to `PATH`.
+
+To use the server from a browser application, open **Admin > Settings > Browser Access** and add the application's exact origin, such as `https://app.example.com` or `http://localhost:5173`. Changes take effect immediately.
+
 ### Local Development
 
 ```bash
