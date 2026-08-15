@@ -8,7 +8,6 @@ import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -22,11 +21,13 @@ import env_provisioning
 import feed_fetcher
 import invidious_proxy
 from basic_auth import BasicAuthMiddleware
+from browser_access import configure_cors
 from database.repositories.sites import get_enabled_sites
 from routers import admin, channels, comments, playlists, proxy, search, storyboards, subscriptions, videos
 from settings import get_settings
 
 logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -56,49 +57,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-def configure_cors(app: FastAPI) -> None:
-    """Configure CORS middleware based on environment settings.
-
-    Security rules:
-    - If specific origins are configured, use them with optional credentials
-    - If CORS_ALLOW_ALL is true, allow all origins but DISABLE credentials
-    - If neither is set, CORS is effectively disabled (no origins allowed)
-    """
-    origins: list[str] = []
-    allow_credentials = False
-
-    if config.CORS_ORIGINS:
-        # Parse comma-separated origins and strip whitespace
-        origins = [o.strip() for o in config.CORS_ORIGINS.split(",") if o.strip()]
-        # Credentials allowed only with specific origins
-        allow_credentials = config.CORS_ALLOW_CREDENTIALS
-        logger.info(f"CORS configured with specific origins: {origins}, credentials: {allow_credentials}")
-    elif config.CORS_ALLOW_ALL:
-        # Development mode: allow all origins but NEVER allow credentials
-        # This complies with CORS spec: wildcard + credentials is invalid
-        origins = ["*"]
-        allow_credentials = False
-        logger.warning(
-            "CORS configured to allow ALL origins (development mode). "
-            "Credentials are DISABLED for security. "
-            "Set CORS_ORIGINS for production use."
-        )
-    else:
-        # No CORS configuration - disabled by default (secure)
-        logger.info("CORS not configured - cross-origin requests will be blocked")
-        return  # Don't add middleware at all
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=allow_credentials,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-
-configure_cors(app)
-
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Middleware to add security headers to all responses."""
@@ -119,6 +77,10 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # Add Basic Auth middleware (only enforced when enabled in settings)
 app.add_middleware(BasicAuthMiddleware)
+
+# CORS is outermost so both successful API responses and Basic-auth challenges
+# carry the browser headers. Preflight is handled before authentication.
+configure_cors(app)
 
 # Mount API routers
 app.include_router(videos.router, prefix="/api/v1")

@@ -5,6 +5,13 @@ Runtime settings are managed via the admin panel and stored in the database.
 """
 
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Direct local launches should honor the same project-root .env file as Docker.
+# Explicit process environment variables retain precedence.
+load_dotenv(Path(__file__).with_name(".env"), override=False)
 
 # Server settings (startup-only)
 HOST = os.getenv("HOST", "0.0.0.0")
@@ -23,6 +30,9 @@ CREDENTIALS_ENCRYPTION_KEY = os.getenv("CREDENTIALS_ENCRYPTION_KEY")
 # CORS settings
 # Comma-separated list of allowed origins (e.g., "https://app.example.com,https://admin.example.com")
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "")
+
+# Optional regular expression for trusted origins whose ports can change (for example, local dev servers)
+CORS_ORIGIN_REGEX = os.getenv("CORS_ORIGIN_REGEX", "").strip() or None
 
 # Allow all origins (development mode) - credentials will be DISABLED in this mode
 CORS_ALLOW_ALL = os.getenv("CORS_ALLOW_ALL", "false").lower() in ("true", "1", "yes")

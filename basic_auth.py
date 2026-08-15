@@ -161,6 +161,12 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
         # Periodic cleanup of rate limiting memory
         _cleanup_all_old_attempts()
 
+        # A browser must be able to complete CORS preflight before it can send an
+        # authenticated cross-origin request. CORSMiddleware validates the requested
+        # origin/method/headers downstream; Basic auth applies to the real request.
+        if request.method == "OPTIONS" and request.headers.get("access-control-request-method"):
+            return await call_next(request)
+
         # Auth is always required after setup (when users exist)
         if not database.has_any_user():
             # No users yet - setup not complete, allow access

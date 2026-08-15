@@ -69,6 +69,8 @@ class SettingsResponse(BaseModel):
     feed_fallback_ytdlp_on_error: bool
     allow_all_sites_for_extraction: bool
     dns_cache_ttl: int
+    cors_allowed_origins: List[str]
+    cors_allow_localhost: bool
     rate_limit_window: int
     rate_limit_max_failures: int
     rate_limit_cleanup_interval: int
@@ -111,6 +113,8 @@ class SettingsUpdate(BaseModel):
     feed_fallback_ytdlp_on_error: Optional[bool] = None
     allow_all_sites_for_extraction: Optional[bool] = None
     dns_cache_ttl: Optional[int] = None
+    cors_allowed_origins: Optional[List[str]] = None
+    cors_allow_localhost: Optional[bool] = None
     rate_limit_window: Optional[int] = None
     rate_limit_max_failures: Optional[int] = None
     rate_limit_cleanup_interval: Optional[int] = None

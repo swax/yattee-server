@@ -18,6 +18,7 @@ A self-hosted API server powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp) t
 - **Invidious proxy** - Optional backing Invidious instance for trending, popular, search suggestions, comments, captions, thumbnails, and avatars
 - **Feed system** - Background feed fetcher for channel subscriptions with automatic refresh
 - **Stream proxy** - Fast parallel downloading via yt-dlp with streaming delivery, plus a `/proxy/relay` byte-relay for direct playback streams
+- **Browser access controls** - Manage exact CORS origins and optional loopback development origins from the admin panel without restarting
 - **Egress proxy** - Optional HTTP/SOCKS proxy for YouTube-bound traffic (yt-dlp + InnerTube), runtime-configurable from the admin panel
 - **Search** - YouTube search with filters (sort, date, duration, type)
 - **Channels** - Full channel browsing: videos, playlists, shorts, streams, search, avatars
@@ -72,7 +73,7 @@ API with endpoints for video extractions, search, channels, playlists, comments,
 The web-based admin panel is accessible at `/admin` and provides:
 
 - **Setup wizard** - First-run configuration to create the initial admin account and optionally connect an Invidious instance
-- **Settings** - All runtime settings (cache TTLs, yt-dlp config, Invidious proxy, feed fetcher, network/egress proxy, rate limiting, etc.)
+- **Settings** - Runtime settings for caching, yt-dlp, Invidious, feeds, networking, browser access, and rate limiting
 - **Sites** - Configure extraction sites with credentials (cookies, API keys) for yt-dlp
 - **Users** - Manage admin and regular user accounts
 - **Watched channels** - View feed fetcher status and trigger manual refreshes

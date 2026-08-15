@@ -43,6 +43,8 @@ document.addEventListener('alpine:init', () => {
         max_search_results: 50,
 
         allow_all_sites_for_extraction: false,
+        cors_allowed_origins_text: '',
+        cors_allow_localhost: false,
         rate_limit_window: 60,
         rate_limit_max_failures: 5,
         proxy_download_max_age: 86400,
@@ -97,6 +99,8 @@ document.addEventListener('alpine:init', () => {
                 this.default_search_results = settings.default_search_results || 20;
                 this.max_search_results = settings.max_search_results || 50;
                 this.allow_all_sites_for_extraction = settings.allow_all_sites_for_extraction || false;
+                this.cors_allowed_origins_text = (settings.cors_allowed_origins || []).join('\n');
+                this.cors_allow_localhost = settings.cors_allow_localhost || false;
                 this.rate_limit_window = settings.rate_limit_window || 60;
                 this.rate_limit_max_failures = settings.rate_limit_max_failures || 5;
                 this.proxy_download_max_age = settings.proxy_download_max_age || 86400;
@@ -148,6 +152,11 @@ document.addEventListener('alpine:init', () => {
                     default_search_results: parseInt(this.default_search_results) || 20,
                     max_search_results: parseInt(this.max_search_results) || 50,
                     allow_all_sites_for_extraction: this.allow_all_sites_for_extraction,
+                    cors_allowed_origins: this.cors_allowed_origins_text
+                        .split(/[\n,]+/)
+                        .map(origin => origin.trim())
+                        .filter(Boolean),
+                    cors_allow_localhost: this.cors_allow_localhost,
                     rate_limit_window: parseInt(this.rate_limit_window) || 60,
                     rate_limit_max_failures: parseInt(this.rate_limit_max_failures) || 5,
                     proxy_download_max_age: (parseInt(this.proxy_download_max_age_hours) || 24) * 3600,

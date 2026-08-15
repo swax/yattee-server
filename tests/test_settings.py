@@ -37,6 +37,8 @@ class TestSettingsModel:
         assert s.feed_ytdlp_use_flat_playlist is True
         assert s.feed_fallback_ytdlp_on_414 is False
         assert s.allow_all_sites_for_extraction is False
+        assert s.cors_allowed_origins == []
+        assert s.cors_allow_localhost is False
         assert s.cache_extract_ttl == 900
         assert s.rate_limit_window == 60
         assert s.rate_limit_max_failures == 5
@@ -156,6 +158,35 @@ class TestSettingsModel:
 
         s = Settings(invidious_instance="https://invidious.example.com")
         assert s.invidious_instance == "https://invidious.example.com"
+
+    def test_browser_origins_are_normalized_and_deduplicated(self):
+        """Stored values match the Origin header form browsers send."""
+        s = Settings(
+            cors_allowed_origins=[
+                "https://Example.COM/",
+                "https://example.com:443",
+                "http://localhost:5181",
+            ]
+        )
+
+        assert s.cors_allowed_origins == ["https://example.com", "http://localhost:5181"]
+
+    @pytest.mark.parametrize(
+        "origin",
+        [
+            "example.com",
+            "ftp://example.com",
+            "https://user:password@example.com",
+            "https://example.com/path",
+            "https://example.com?query=yes",
+            "https://example.com/#fragment",
+            "https://example.com:not-a-port",
+        ],
+    )
+    def test_browser_origins_reject_non_origins(self, origin):
+        """Paths, credentials, unsupported schemes, and malformed values are unsafe here."""
+        with pytest.raises(ValidationError):
+            Settings(cors_allowed_origins=[origin])
 
     def test_model_dump(self):
         """Test that model_dump returns correct dictionary."""

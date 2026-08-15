@@ -116,6 +116,17 @@ class TestSettingsRepository:
         settings = database.get_settings_row()
         assert settings["invidious_instance"] == "https://invidious.example.com"
 
+    def test_update_settings_origin_list(self):
+        """Structured origin lists round-trip through the SQLite TEXT column."""
+        import database
+
+        origins = ["https://app.example.com", "http://localhost:5173"]
+        database.update_settings({"cors_allowed_origins": origins, "cors_allow_localhost": True})
+        settings = database.get_settings_row()
+
+        assert settings["cors_allowed_origins"] == origins
+        assert settings["cors_allow_localhost"] is True
+
     def test_update_settings_integer_value(self):
         """Test updating an integer setting."""
         import database

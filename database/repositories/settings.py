@@ -1,5 +1,6 @@
 """Settings repository."""
 
+import json
 from typing import Any, Dict, Optional
 
 from database.connection import get_connection
@@ -30,9 +31,16 @@ def get_settings_row() -> Optional[Dict[str, Any]]:
                 "feed_fallback_ytdlp_on_error",
                 "basic_auth_enabled",
                 "allow_all_sites_for_extraction",
+                "cors_allow_localhost",
             ]:
                 if key in result:
                     result[key] = bool(result[key])
+            if "cors_allowed_origins" in result:
+                try:
+                    decoded = json.loads(result["cors_allowed_origins"] or "[]")
+                    result["cors_allowed_origins"] = decoded if isinstance(decoded, list) else []
+                except (TypeError, json.JSONDecodeError):
+                    result["cors_allowed_origins"] = []
             return result
         return None
 
@@ -72,6 +80,8 @@ def update_settings(values: Dict[str, Any]) -> None:
             val = values[col]
             if isinstance(val, bool):
                 val = 1 if val else 0
+            elif isinstance(val, (list, dict)):
+                val = json.dumps(val, separators=(",", ":"))
             params.append(val)
 
         set_clause = ", ".join(f"{col} = ?" for col in columns)

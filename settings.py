@@ -2,12 +2,36 @@
 
 import logging
 from typing import Optional
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 import database
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_web_origin(value: str) -> str:
+    """Validate and normalize an HTTP(S) origin with no path or credentials."""
+    candidate = value.strip()
+    try:
+        parsed = urlsplit(candidate)
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError(f"Invalid browser origin: {value}") from error
+
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("Browser origins must use http:// or https:// and include a host")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("Browser origins cannot contain credentials")
+    if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+        raise ValueError("Browser origins cannot contain a path, query string, or fragment")
+
+    hostname = parsed.hostname.casefold()
+    host = f"[{hostname}]" if ":" in hostname else hostname
+    default_port = 80 if parsed.scheme == "http" else 443
+    port_suffix = f":{port}" if port is not None and port != default_port else ""
+    return f"{parsed.scheme}://{host}{port_suffix}"
 
 
 class Settings(BaseModel):
@@ -98,6 +122,15 @@ class Settings(BaseModel):
 
     # Security
     dns_cache_ttl: int = Field(default=30, ge=5, le=3600)
+    cors_allowed_origins: list[str] = Field(
+        default_factory=list,
+        max_length=100,
+        description="Exact browser origins allowed to call the API cross-origin.",
+    )
+    cors_allow_localhost: bool = Field(
+        default=False,
+        description="Allow HTTP(S) loopback origins on any port for local web development.",
+    )
 
     # Rate limiting (Basic Auth)
     rate_limit_window: int = Field(default=60, ge=10, le=600)
@@ -108,6 +141,16 @@ class Settings(BaseModel):
     proxy_download_max_age: int = Field(default=86400, ge=60, le=604800)
     proxy_max_concurrent_downloads: int = Field(default=3, ge=1, le=20)
 
+    @field_validator("cors_allowed_origins")
+    @classmethod
+    def validate_cors_allowed_origins(cls, origins: list[str]) -> list[str]:
+        """Normalize, deduplicate, and validate administrator-supplied origins."""
+        normalized: list[str] = []
+        for origin in origins:
+            clean = normalize_web_origin(origin)
+            if clean not in normalized:
+                normalized.append(clean)
+        return normalized
 
     def effective_yt_egress_proxy(self) -> Optional[str]:
         """Return the egress proxy URL only if both configured and enabled."""

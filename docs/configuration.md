@@ -18,8 +18,9 @@ Set these in your `.env` file or as system/Docker environment variables.
 | `DATA_DIR` | string | `data` | Directory for database, encryption keys, and temp files |
 | `DOWNLOAD_DIR` | string | *(empty)* | Directory for proxied video downloads. If empty, uses a default location. |
 | `CREDENTIALS_ENCRYPTION_KEY` | string | *(auto-generated)* | Fernet encryption key for site credentials. Auto-generated on first run if not set. Generate with: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
-| `CORS_ORIGINS` | string | *(empty)* | Comma-separated list of allowed origins (e.g., `https://app.example.com,https://admin.example.com`) |
-| `CORS_ALLOW_ALL` | boolean | `false` | Allow all origins. Credentials are **disabled** in this mode. For development only. |
+| `CORS_ORIGINS` | string | *(empty)* | Comma-separated origins to allow in addition to the runtime browser-access list (e.g., `https://app.example.com,https://admin.example.com`) |
+| `CORS_ORIGIN_REGEX` | string | *(empty)* | Regular expression for origins to allow in addition to the runtime browser-access list. Anchor the expression so it cannot match lookalike hosts. |
+| `CORS_ALLOW_ALL` | boolean | `false` | Allow all origins when no specific environment origin list or regex is configured. Credentials are **disabled** in this mode. For development only. |
 | `CORS_ALLOW_CREDENTIALS` | boolean | `true` | Allow credentials (cookies, authorization headers). Only works with specific origins. |
 | `DEBUG` | boolean | `false` | Enable auto-reload for development |
 | `SECURE_COOKIES` | boolean | `true` | Enforce HTTPS-only cookies. Set to `false` for local development without HTTPS. |
@@ -111,6 +112,15 @@ All cache TTL values are in seconds.
 | Setting | Type | Default | Range | Description |
 |---------|------|---------|-------|-------------|
 | `dns_cache_ttl` | integer | `30` | 5 - 3600 | DNS cache TTL in seconds |
+
+### Browser Access
+
+These settings control which cross-origin browser applications may call the server. Enter exact origins only: a scheme, hostname, and optional port, with no path. They are combined with any startup CORS origins and take effect immediately.
+
+| Setting | Type | Default | Range | Description |
+|---------|------|---------|-------|-------------|
+| `cors_allowed_origins` | list of strings | `[]` | Up to 100 | Exact browser origins allowed to make cross-origin requests, such as `https://app.example.com` or `http://localhost:5173` |
+| `cors_allow_localhost` | boolean | `false` | - | Allow HTTP or HTTPS origins on `localhost`, `127.0.0.1`, and `[::1]` using any port. Intended for local development. |
 
 ### Rate Limiting (Basic Auth)
 

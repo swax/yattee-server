@@ -630,6 +630,36 @@
                     </div>
                 </div>
 
+                <!-- Browser Access Section -->
+                <div class="mb-8" id="browser-access">
+                    <h3 class="text-lg font-medium mb-4 pb-2 border-b border-border">Browser Access</h3>
+                    <div class="mb-4">
+                        <label for="cors-allowed-origins" class="block mb-2 font-medium">Allowed Web App Origins</label>
+                        <textarea id="cors-allowed-origins" rows="5" class="input-base font-mono"
+                                  placeholder="https://app.example.com&#10;http://localhost:5173"
+                                  x-model="cors_allowed_origins_text"></textarea>
+                        <small class="block text-muted text-sm mt-1">
+                            One exact <code>http://</code> or <code>https://</code> origin per line. Do not include paths.
+                            Changes apply immediately; an empty list blocks cross-origin browser access.
+                        </small>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <label class="toggle">
+                            <input type="checkbox" x-model="cors_allow_localhost">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <div>
+                            <label class="font-medium cursor-pointer">Allow localhost development origins</label>
+                            <small class="block text-muted text-sm">
+                                Allows <code>localhost</code>, <code>127.0.0.1</code>, and <code>::1</code> on any port.
+                            </small>
+                        </div>
+                    </div>
+                    <small class="block text-muted text-sm mt-3">
+                        Startup environment origins remain active in addition to this list and are not shown here.
+                    </small>
+                </div>
+
                 <!-- Search & Other Section -->
                 <div class="mb-8">
                     <h3 class="text-lg font-medium mb-4 pb-2 border-b border-border">Other Settings</h3>
