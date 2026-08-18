@@ -9,6 +9,22 @@
 
 A self-hosted API server powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp) that manages data extraction from YouTube and other video sites. Designed for use with [Yattee](https://github.com/yattee/yattee).
 
+## About This Fork
+
+This repository is an independently maintained fork of
+[yattee/yattee-server](https://github.com/yattee/yattee-server). It currently
+builds on upstream version `v1.0.7` with these fork-specific additions:
+
+- Runtime browser access controls for managing CORS origins from the admin panel
+- Native Windows setup and startup scripts, including a managed local YouTube
+  PO-token provider
+- A hardened media relay with adaptive downloads, upstream error backoff,
+  corrected media content types, and signed-URL redaction in access logs
+
+See the
+[full comparison with upstream](https://github.com/yattee/yattee-server/compare/main...swax:main)
+for the complete commit and file-level differences.
+
 ## Features
 
 - **Multi-site extraction** - YouTube plus any site supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Twitch, Vimeo, BiliBili, etc.) with per-site credentials
