@@ -27,6 +27,7 @@ client-IP-mismatch reason that motivated all of this).
 **downloads**, where caching the file on disk is desirable.
 """
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -34,6 +35,7 @@ import logging
 import re
 import time
 import urllib.parse
+from collections import OrderedDict
 from typing import Optional
 
 import httpx
@@ -49,11 +51,37 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TTL_SECONDS = 6 * 60 * 60
 
-# Upstream chunk size for the binary stream-and-relay loop. googlevideo has
-# been observed to throttle / reset long-running single connections; reissuing
-# the upstream GET every CHUNK_SIZE bytes avoids that. Matches Invidious's
-# /videoplayback chunk size (10 MiB) — it's been battle-tested at that value.
+# Default upstream chunk size for the binary stream-and-relay loop. Keep the
+# established 10 MiB default for CDNs that support it; the adaptive fallback
+# below handles googlevideo URLs that reject larger ranges.
 CHUNK_SIZE = 10 * 1024 * 1024
+
+# If an upstream rejects a range with 403, halve the range and retry down to
+# this floor. A 403 at the floor is treated as authoritative (expired URL,
+# invalid credentials, IP mismatch, etc.) and surfaced normally.
+MIN_CHUNK_SIZE = 256 * 1024
+
+# A rejected large range is usually a CDN range-size limit, so reduce it after
+# one short pause. If even the minimum range is rejected, retry that exact
+# range with bounded exponential backoff in case the CDN is throttling rather
+# than treating the URL as permanently invalid.
+RANGE_REDUCTION_DELAY_SECONDS = 0.1
+HTTP_403_BACKOFF_SECONDS = (0.25, 0.5, 1.0)
+
+# Browsers open several Range requests for one media URL (metadata, playback,
+# seeks). Remember a size that actually succeeded so each request does not
+# repeat the 10 MiB reduction ladder. The global default remains 10 MiB for
+# every new signed URL.
+CHUNK_SIZE_CACHE_TTL_SECONDS = 15 * 60
+CHUNK_SIZE_CACHE_MAX_ENTRIES = 256
+_chunk_size_cache: OrderedDict[str, tuple[int, float]] = OrderedDict()
+
+# After a range still returns 403 at the minimum size and after backoff, the
+# signed media URL is not currently usable. Browsers otherwise reopen the same
+# failed URL immediately, causing an unbounded retry loop. Short-circuit it
+# briefly so the media element receives a terminal error and can stop.
+UPSTREAM_403_COOLDOWN_SECONDS = 30.0
+_upstream_403_cooldowns: OrderedDict[str, float] = OrderedDict()
 
 # How many times we retry a single chunk before giving up. The retry uses the
 # byte offset we've already yielded to the client, so partial progress isn't
@@ -71,6 +99,52 @@ RETRYABLE_UPSTREAM_ERRORS = (
     httpx.ConnectError,
     httpx.ReadTimeout,
 )
+
+
+def _cached_chunk_size(url: str) -> int:
+    cached = _chunk_size_cache.get(url)
+    if cached is None:
+        return CHUNK_SIZE
+    size, stored_at = cached
+    if time.monotonic() - stored_at > CHUNK_SIZE_CACHE_TTL_SECONDS:
+        _chunk_size_cache.pop(url, None)
+        return CHUNK_SIZE
+    _chunk_size_cache.move_to_end(url)
+    return min(CHUNK_SIZE, max(MIN_CHUNK_SIZE, size))
+
+
+def _remember_chunk_size(url: str, size: int) -> None:
+    now = time.monotonic()
+    _chunk_size_cache[url] = (min(CHUNK_SIZE, max(MIN_CHUNK_SIZE, size)), now)
+    _chunk_size_cache.move_to_end(url)
+
+    while _chunk_size_cache:
+        _, (_, oldest_at) = next(iter(_chunk_size_cache.items()))
+        if (
+            len(_chunk_size_cache) <= CHUNK_SIZE_CACHE_MAX_ENTRIES
+            and now - oldest_at <= CHUNK_SIZE_CACHE_TTL_SECONDS
+        ):
+            break
+        _chunk_size_cache.popitem(last=False)
+
+
+def _upstream_403_cooldown_remaining(url: str) -> float:
+    retry_at = _upstream_403_cooldowns.get(url)
+    if retry_at is None:
+        return 0.0
+    remaining = retry_at - time.monotonic()
+    if remaining <= 0:
+        _upstream_403_cooldowns.pop(url, None)
+        return 0.0
+    _upstream_403_cooldowns.move_to_end(url)
+    return remaining
+
+
+def _mark_upstream_403_cooldown(url: str) -> None:
+    _upstream_403_cooldowns[url] = time.monotonic() + UPSTREAM_403_COOLDOWN_SECONDS
+    _upstream_403_cooldowns.move_to_end(url)
+    while len(_upstream_403_cooldowns) > CHUNK_SIZE_CACHE_MAX_ENTRIES:
+        _upstream_403_cooldowns.popitem(last=False)
 
 HLS_CONTENT_TYPES = ("application/vnd.apple.mpegurl", "application/x-mpegurl")
 DASH_CONTENT_TYPES = ("application/dash+xml",)
@@ -228,6 +302,9 @@ async def _stream_chunked_with_retry(
     """Stream bytes ``start..end_inclusive`` (HTTP-style inclusive end) from
     upstream, breaking the read into ``CHUNK_SIZE``-sized upstream GETs.
 
+    A 403 for an oversized range is retried with progressively smaller chunks.
+    Once a smaller size succeeds, it is retained for the rest of the stream.
+
     Per chunk, retry up to ``MAX_RETRIES_PER_CHUNK`` times on transient
     connection errors. The retry resumes from the byte offset already
     yielded, so the client sees a contiguous stream regardless of upstream
@@ -238,71 +315,114 @@ async def _stream_chunked_with_retry(
     non-success status.
     """
     cursor = start
+    chunk_size = _cached_chunk_size(url)
 
     while end_inclusive is None or cursor <= end_inclusive:
-        chunk_end = cursor + CHUNK_SIZE - 1
+        chunk_end = cursor + chunk_size - 1
         if end_inclusive is not None:
             chunk_end = min(chunk_end, end_inclusive)
 
         chunk_yielded = 0
-        last_error: Optional[BaseException] = None
+        floor_403_retries = 0
+        while True:
+            last_error: Optional[BaseException] = None
+            range_rejected = False
 
-        for attempt in range(MAX_RETRIES_PER_CHUNK):
-            attempt_start = cursor + chunk_yielded
-            req_headers = {**base_headers, "Range": f"bytes={attempt_start}-{chunk_end}"}
+            for attempt in range(MAX_RETRIES_PER_CHUNK):
+                attempt_start = cursor + chunk_yielded
+                req_headers = {**base_headers, "Range": f"bytes={attempt_start}-{chunk_end}"}
 
-            try:
-                resp = await client.send(
-                    client.build_request("GET", url, headers=req_headers),
-                    stream=True,
-                )
-            except RETRYABLE_UPSTREAM_ERRORS as e:
-                last_error = e
-                logger.warning(
-                    f"[Relay] connect retry {attempt + 1}/{MAX_RETRIES_PER_CHUNK} "
-                    f"for bytes={attempt_start}-{chunk_end}: {e}"
-                )
+                try:
+                    resp = await client.send(
+                        client.build_request("GET", url, headers=req_headers),
+                        stream=True,
+                    )
+                except RETRYABLE_UPSTREAM_ERRORS as e:
+                    last_error = e
+                    logger.warning(
+                        f"[Relay] connect retry {attempt + 1}/{MAX_RETRIES_PER_CHUNK} "
+                        f"for bytes={attempt_start}-{chunk_end}: {e}"
+                    )
+                    continue
+
+                # 416 Range Not Satisfiable when end_inclusive was unknown
+                # means we walked past content end — clean exit.
+                if resp.status_code == 416 and end_inclusive is None:
+                    await resp.aclose()
+                    return
+
+                requested_size = chunk_end - attempt_start + 1
+                if resp.status_code == 403 and chunk_yielded == 0 and requested_size > MIN_CHUNK_SIZE:
+                    await resp.aread()
+                    await resp.aclose()
+                    reduced_size = max(MIN_CHUNK_SIZE, requested_size // 2)
+                    chunk_size = min(chunk_size, reduced_size)
+                    chunk_end = cursor + chunk_size - 1
+                    if end_inclusive is not None:
+                        chunk_end = min(chunk_end, end_inclusive)
+                    logger.warning(
+                        f"[Relay] upstream rejected a {requested_size}-byte range with 403; "
+                        f"retrying with {chunk_size}-byte chunks after "
+                        f"{RANGE_REDUCTION_DELAY_SECONDS:.2f}s"
+                    )
+                    await asyncio.sleep(RANGE_REDUCTION_DELAY_SECONDS)
+                    range_rejected = True
+                    break
+
+                if resp.status_code == 403 and chunk_yielded == 0 and (
+                    floor_403_retries < len(HTTP_403_BACKOFF_SECONDS)
+                ):
+                    await resp.aread()
+                    await resp.aclose()
+                    delay = HTTP_403_BACKOFF_SECONDS[floor_403_retries]
+                    floor_403_retries += 1
+                    logger.warning(
+                        f"[Relay] upstream rejected minimum range bytes={attempt_start}-{chunk_end}; "
+                        f"retry {floor_403_retries}/{len(HTTP_403_BACKOFF_SECONDS)} after {delay:.2f}s"
+                    )
+                    await asyncio.sleep(delay)
+                    range_rejected = True
+                    break
+
+                if resp.status_code >= 400:
+                    # Authoritative error from upstream, surface to client.
+                    body = await resp.aread()
+                    await resp.aclose()
+                    if resp.status_code == 403:
+                        _mark_upstream_403_cooldown(url)
+                    raise httpx.HTTPStatusError(
+                        f"upstream {resp.status_code} for bytes={attempt_start}-{chunk_end}: {body[:200]!r}",
+                        request=resp.request,
+                        response=resp,
+                    )
+
+                # If we asked for a Range and upstream answered 200, it
+                # doesn't honour Range — we'd be re-downloading the whole
+                # body from byte 0 for every chunk. Stream this body once.
+                single_shot = resp.status_code == 200
+                if chunk_yielded == 0:
+                    _remember_chunk_size(url, chunk_size)
+                try:
+                    async for piece in resp.aiter_raw():
+                        chunk_yielded += len(piece)
+                        yield piece
+                    await resp.aclose()
+                    break
+                except RETRYABLE_UPSTREAM_ERRORS as e:
+                    last_error = e
+                    logger.warning(
+                        f"[Relay] read retry {attempt + 1}/{MAX_RETRIES_PER_CHUNK} "
+                        f"after {chunk_yielded}B of bytes={cursor}-{chunk_end}: {e}"
+                    )
+                    await resp.aclose()
+                    continue
+            else:
+                # Exhausted transient-error retries.
+                raise last_error if last_error else RuntimeError("relay chunk failed")
+
+            if range_rejected:
                 continue
-
-            # 416 Range Not Satisfiable when end_inclusive was unknown means
-            # we walked past content end — clean exit.
-            if resp.status_code == 416 and end_inclusive is None:
-                await resp.aclose()
-                return
-
-            if resp.status_code >= 400:
-                # Authoritative error from upstream, surface to client.
-                body = await resp.aread()
-                await resp.aclose()
-                raise httpx.HTTPStatusError(
-                    f"upstream {resp.status_code} for bytes={attempt_start}-{chunk_end}: {body[:200]!r}",
-                    request=resp.request,
-                    response=resp,
-                )
-
-            # If we asked for a Range and upstream answered 200, it doesn't
-            # honour Range — we'd be re-downloading the whole body from byte 0
-            # for every chunk. Bail to single-shot mode by streaming this one
-            # body fully and stopping. (googlevideo always 206s; this only
-            # matters as a safety net for misconfigured upstreams.)
-            single_shot = resp.status_code == 200
-            try:
-                async for piece in resp.aiter_raw():
-                    chunk_yielded += len(piece)
-                    yield piece
-                await resp.aclose()
-                break
-            except RETRYABLE_UPSTREAM_ERRORS as e:
-                last_error = e
-                logger.warning(
-                    f"[Relay] read retry {attempt + 1}/{MAX_RETRIES_PER_CHUNK} "
-                    f"after {chunk_yielded}B of bytes={cursor}-{chunk_end}: {e}"
-                )
-                await resp.aclose()
-                continue
-        else:
-            # Exhausted retries.
-            raise last_error if last_error else RuntimeError("relay chunk failed")
+            break
 
         # Defensive: if upstream returned no body, don't loop forever.
         if chunk_yielded == 0:
@@ -345,6 +465,14 @@ async def relay(
     if not is_safe_url(url):
         raise HTTPException(status_code=403, detail="URL targets restricted network resources")
 
+    cooldown_remaining = _upstream_403_cooldown_remaining(url)
+    if cooldown_remaining > 0:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Upstream media URL is cooling down after repeated HTTP 403 responses; retry in "
+            f"{cooldown_remaining:.1f}s",
+        )
+
     upstream_headers = {
         "User-Agent": UPSTREAM_USER_AGENT,
         # Don't let httpx negotiate gzip/br upstream — we relay raw bytes and
@@ -384,6 +512,14 @@ async def relay(
         await client.aclose()
         logger.warning(f"[Relay] Upstream connect failed for {url[:120]}: {e}")
         raise HTTPException(status_code=502, detail=f"Upstream connect failed: {e}") from e
+
+    if meta.status_code >= 400:
+        status = meta.status_code
+        await meta.aread()
+        await meta.aclose()
+        await client.aclose()
+        logger.warning(f"[Relay] upstream rejected metadata probe with HTTP {status}")
+        raise HTTPException(status_code=502, detail=f"Upstream media URL returned HTTP {status}")
 
     upstream_content_type = meta.headers.get("content-type", "")
     response_content_type = (ct or upstream_content_type or "").split(";")[0].strip().lower()
@@ -439,9 +575,13 @@ async def relay(
         response_status = 206
         response_headers = {
             "content-range": f"bytes {range_start}-{loop_end}/{total}",
-            "content-length": str(loop_end - range_start + 1),
             "accept-ranges": "bytes",
         }
+        # Content-Range still tells the media client the requested span and
+        # total size. Deliberately leave this fallible streamed response
+        # without Content-Length: if upstream disappears mid-range, fixed
+        # framing makes Uvicorn raise a second, misleading "content shorter"
+        # exception after the useful relay warning.
     elif total is not None:
         loop_end = total - 1
         response_status = 200

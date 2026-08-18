@@ -8,6 +8,11 @@ $ErrorActionPreference = "Stop"
 $setupRepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $setupVenvPath = Join-Path $setupRepoRoot ".venv"
 $setupVenvPython = Join-Path $setupVenvPath "Scripts\python.exe"
+$setupProviderVersion = "1.3.1"
+$setupProviderCommit = "7608dd51ee813b48cf9a6d68c6e42cb197ce10e0"
+$setupProviderRoot = Join-Path $setupRepoRoot ".tools\bgutil-ytdlp-pot-provider-$setupProviderVersion"
+$setupProviderServer = Join-Path $setupProviderRoot "server"
+$setupProviderPatch = Join-Path $PSScriptRoot "patches\bgutil-ytdlp-pot-provider-1.3.1-loopback.patch"
 
 function Find-CompatiblePython {
     $setupCandidates = @(
@@ -61,8 +66,69 @@ try {
     }
 
     Write-Host "Installing Yattee Server dependencies..."
-    Invoke-CheckedCommand -Executable $setupVenvPython -Arguments @("-m", "pip", "install", "--upgrade", "pip")
     Invoke-CheckedCommand -Executable $setupVenvPython -Arguments @("-m", "pip", "install", "-r", "requirements.txt")
+
+    $setupNode = Get-Command "node" -ErrorAction SilentlyContinue
+    if (-not $setupNode) {
+        throw "Node.js 20 or newer is required for the YouTube PO-token provider. Install it from https://nodejs.org/ and run this script again."
+    }
+
+    $setupNodeVersionText = (& $setupNode.Source "--version").Trim().TrimStart("v")
+    if ($LASTEXITCODE -ne 0 -or ([version]$setupNodeVersionText).Major -lt 20) {
+        throw "Node.js 20 or newer is required for the YouTube PO-token provider (found $setupNodeVersionText)."
+    }
+
+    $setupGit = Get-Command "git" -ErrorAction SilentlyContinue
+    if (-not $setupGit) {
+        throw "Git is required to install the YouTube PO-token provider. Install it from https://git-scm.com/ and run this script again."
+    }
+
+    if (-not (Test-Path -LiteralPath $setupProviderRoot)) {
+        $setupToolsRoot = Split-Path -Parent $setupProviderRoot
+        New-Item -ItemType Directory -Path $setupToolsRoot -Force | Out-Null
+        Write-Host "Downloading YouTube PO-token provider v$setupProviderVersion..."
+        Invoke-CheckedCommand -Executable $setupGit.Source -Arguments @(
+            "clone",
+            "--depth", "1",
+            "--branch", $setupProviderVersion,
+            "https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git",
+            $setupProviderRoot
+        )
+    }
+
+    $setupProviderHead = (& $setupGit.Source "-C" $setupProviderRoot "rev-parse" "HEAD").Trim()
+    if ($LASTEXITCODE -ne 0 -or $setupProviderHead -ne $setupProviderCommit) {
+        throw "Unexpected PO-token provider revision at $setupProviderRoot. Expected $setupProviderCommit, found $setupProviderHead."
+    }
+
+    $setupProviderMainSource = Join-Path $setupProviderServer "src\main.ts"
+    $setupProviderMainSourceContent = Get-Content -LiteralPath $setupProviderMainSource -Raw
+    $setupProviderPackage = Join-Path $setupProviderServer "package.json"
+    $setupProviderPackageContent = Get-Content -LiteralPath $setupProviderPackage -Raw
+    if (
+        $setupProviderMainSourceContent -notmatch 'host:\s*"127\.0\.0\.1"' -or
+        $setupProviderPackageContent -notmatch '"allowScripts"'
+    ) {
+        Write-Host "Restricting the PO-token provider to the loopback interface..."
+        Invoke-CheckedCommand -Executable $setupGit.Source -Arguments @(
+            "-C", $setupProviderRoot, "apply", "--whitespace=nowarn", $setupProviderPatch
+        )
+    }
+
+    $setupNpm = Get-Command "npm" -ErrorAction SilentlyContinue
+    if (-not $setupNpm) {
+        throw "npm was not found even though Node.js is installed. Repair the Node.js installation and run this script again."
+    }
+
+    Write-Host "Building YouTube PO-token provider v$setupProviderVersion..."
+    Push-Location $setupProviderServer
+    try {
+        Invoke-CheckedCommand -Executable $setupNpm.Source -Arguments @("ci")
+        $setupTypeScript = Join-Path $setupProviderServer "node_modules\.bin\tsc.cmd"
+        Invoke-CheckedCommand -Executable $setupTypeScript -Arguments @("--pretty")
+    } finally {
+        Pop-Location
+    }
 
     $setupEnvPath = Join-Path $setupRepoRoot ".env"
     if (-not (Test-Path -LiteralPath $setupEnvPath)) {

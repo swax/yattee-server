@@ -1,0 +1,59 @@
+diff --git a/server/src/main.ts b/server/src/main.ts
+index f34278a..4c69b81 100644
+--- a/server/src/main.ts
++++ b/server/src/main.ts
+@@ -16,17 +16,17 @@ const httpServer = express();
+ httpServer
+     .listen(
+         {
+-            host: "::",
++            host: "127.0.0.1",
+             port: PORT_NUMBER,
+         },
+         (err) => {
+             if (err) {
+                 console.error(
+-                    `Could not listen on [::]:${PORT_NUMBER}, falling back to 0.0.0.0 (Caused by ${strerror(err)})`,
++                    `Could not listen on 127.0.0.1:${PORT_NUMBER} (Caused by ${strerror(err)})`,
+                 );
+             } else {
+                 console.log(
+-                    `Started POT server (v${VERSION}) on on address [::]:${PORT_NUMBER}`,
++                    `Started POT server (v${VERSION}) on address 127.0.0.1:${PORT_NUMBER}`,
+                 );
+             }
+         },
+@@ -37,14 +37,14 @@ httpServer
+         httpServer.listen(
+             {
+-                host: "0.0.0.0",
++                host: "127.0.0.1",
+                 port: PORT_NUMBER,
+             },
+             (err) => {
+                 if (err) {
+                     console.error(
+-                        `Could not listen on [::]:${PORT_NUMBER} (Caused by ${strerror(err)})`,
++                        `Could not listen on 127.0.0.1:${PORT_NUMBER} (Caused by ${strerror(err)})`,
+                     );
+                 } else {
+                     console.log(
+-                        `Started POT server (v${VERSION}) on address 0.0.0.0:${PORT_NUMBER}`,
++                        `Started POT server (v${VERSION}) on address 127.0.0.1:${PORT_NUMBER}`,
+                     );
+                 }
+             },
+diff --git a/server/package.json b/server/package.json
+index 64f4b3b..2d60b57 100644
+--- a/server/package.json
++++ b/server/package.json
+@@ -49,5 +49,9 @@
+         "swc-node": "^1.0.0",
+         "typescript": "^5.9.3",
+         "typescript-eslint": "^8.54.0"
++    },
++    "allowScripts": {
++        "@swc/core@1.15.11": true,
++        "canvas@3.2.1": true
+     }
+ }

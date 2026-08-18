@@ -25,6 +25,7 @@ static/vendor/
 
 # Project
 tailwindcss
+.tools/
 downloads/
 data/
 *.log

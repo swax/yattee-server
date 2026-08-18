@@ -30,6 +30,8 @@ A self-hosted API server powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp) t
 
 ### Windows
 
+Install Python 3.12+, Node.js 20+, Git, Deno, and FFmpeg, then run:
+
 ```powershell
 git clone https://github.com/swax/yattee-server.git
 cd yattee-server
@@ -105,9 +107,14 @@ Authentication is configured during setup and can be managed in the admin panel 
 ## Requirements
 
 - **Python 3.12+**
+- **Node.js 20+** - Runs the local YouTube PO-token provider
 - **yt-dlp** - Video extraction
 - **deno** - Required by yt-dlp for YouTube JS challenge solving
 - **ffmpeg** - Media processing
+
+On Windows, `setup-windows.ps1` installs the pinned Python plugin and builds the
+matching PO-token provider under `.tools`. `start-windows.ps1` starts that
+provider on `127.0.0.1:4416` for the lifetime of Yattee Server.
 
 ## Docker
 

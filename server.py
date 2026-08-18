@@ -29,11 +29,30 @@ from settings import get_settings
 logger = logging.getLogger(__name__)
 
 
+class RedactRelayAccessQuery(logging.Filter):
+    """Keep relay access logs useful without printing signed upstream URLs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
+            request_target = args[2]
+            if request_target.startswith("/proxy/relay?"):
+                record.args = (*args[:2], "/proxy/relay", *args[3:])
+        return True
+
+
+_relay_access_filter = RedactRelayAccessQuery()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup: Initialize database (alembic.ini configures logging)
     database.init_db()
+    # httpx logs every internal media chunk at INFO, including the full signed
+    # Googlevideo URL. Relay warnings carry the actionable status and range.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.access").addFilter(_relay_access_filter)
     # Startup: Auto-provision admin user and settings from env vars
     env_provisioning.apply_env_provisioning()
     # Startup: Clean up old download files then start periodic cleanup task

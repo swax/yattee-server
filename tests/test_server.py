@@ -1,5 +1,6 @@
 """Tests for server.py - main application endpoints."""
 
+import logging
 import os
 import sys
 
@@ -7,6 +8,23 @@ import pytest
 
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+
+def test_relay_access_filter_redacts_signed_query():
+    from server import RedactRelayAccessQuery
+
+    record = logging.LogRecord(
+        name="uvicorn.access",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg='%s - "%s %s HTTP/%s" %d',
+        args=("127.0.0.1:1234", "GET", "/proxy/relay?url=secret&sig=secret", "1.1", 206),
+        exc_info=None,
+    )
+
+    assert RedactRelayAccessQuery().filter(record)
+    assert record.args[2] == "/proxy/relay"
 
 
 # =============================================================================

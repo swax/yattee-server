@@ -2,12 +2,21 @@
 
 import asyncio
 import logging
+import os
 from typing import List, Optional, Tuple
 
 from settings import get_settings
 from ytdlp_wrapper._sanitize import YtDlpError, is_valid_url
 
 logger = logging.getLogger(__name__)
+
+YOUTUBE_PLAYER_ARGS = ["--extractor-args", "youtube:player_client=mweb"]
+
+
+def _po_token_player_args() -> List[str]:
+    """Use mweb only when the managed PO-token provider is running."""
+    enabled = os.getenv("YATTEE_PO_TOKEN_PROVIDER", "").lower() in ("true", "1", "yes")
+    return YOUTUBE_PLAYER_ARGS if enabled else []
 
 
 def _separate_flags_and_urls(args: tuple) -> Tuple[List[str], List[str]]:
@@ -73,9 +82,12 @@ async def run_ytdlp(*args: str, timeout: Optional[int] = None, url: Optional[str
     proxy = s.effective_yt_egress_proxy()
     proxy_args = ["--proxy", proxy] if proxy else []
 
-    # Build final args: proxy + credentials + flags + '--' + urls
+    # mweb is a WebPO-capable client. The local bgutil provider can mint the
+    # GVS token now required by YouTube for adaptive media requests.
+    #
+    # Build final args: proxy + credentials + YouTube client + flags + '--' + urls
     # The '--' separator prevents URLs from being interpreted as flags
-    all_args = proxy_args + list(cred_args) + flags
+    all_args = proxy_args + list(cred_args) + _po_token_player_args() + flags
     if urls:
         all_args.append("--")
         all_args.extend(urls)
