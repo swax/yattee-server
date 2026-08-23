@@ -1,8 +1,8 @@
 diff --git a/server/src/main.ts b/server/src/main.ts
-index f34278a..4c69b81 100644
+index 4558589..4a0994e 100644
 --- a/server/src/main.ts
 +++ b/server/src/main.ts
-@@ -16,17 +16,17 @@ const httpServer = express();
+@@ -16,17 +16,17 @@ httpServer.use(express.urlencoded({ extended: true }));
  httpServer
      .listen(
          {
@@ -23,7 +23,8 @@ index f34278a..4c69b81 100644
                  );
              }
          },
-@@ -37,14 +37,14 @@ httpServer
+@@ -36,17 +36,17 @@ httpServer
+         // this is temporary as we plan to bind to localhost in the next major version
          httpServer.listen(
              {
 -                host: "0.0.0.0",
@@ -43,17 +44,3 @@ index f34278a..4c69b81 100644
                      );
                  }
              },
-diff --git a/server/package.json b/server/package.json
-index 64f4b3b..2d60b57 100644
---- a/server/package.json
-+++ b/server/package.json
-@@ -49,5 +49,9 @@
-         "swc-node": "^1.0.0",
-         "typescript": "^5.9.3",
-         "typescript-eslint": "^8.54.0"
-+    },
-+    "allowScripts": {
-+        "@swc/core@1.15.11": true,
-+        "canvas@3.2.1": true
-     }
- }

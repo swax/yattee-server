@@ -58,6 +58,18 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-windows.ps1
 
 Open `http://127.0.0.1:8085` to complete setup. The setup script creates an isolated Python environment, installs Python dependencies, and creates a loopback-only `.env`. It also reports whether Deno or FFmpeg still needs to be installed and added to `PATH`.
 
+Press `Ctrl+C` in the start terminal for a graceful shutdown. If that terminal
+was forcibly closed or either process was orphaned, stop the verified local
+listeners from another PowerShell window with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\stop-windows.ps1
+```
+
+Use `-WhatIf` to show which processes would be stopped. The stop script checks
+the Yattee `/info` and PO-token provider `/ping` responses before terminating
+their listener processes.
+
 To use the server from a browser application, open **Admin > Settings > Browser Access** and add the application's exact origin, such as `https://app.example.com` or `http://localhost:5173`. Changes take effect immediately.
 
 ### Local Development

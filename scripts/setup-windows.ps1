@@ -8,11 +8,11 @@ $ErrorActionPreference = "Stop"
 $setupRepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $setupVenvPath = Join-Path $setupRepoRoot ".venv"
 $setupVenvPython = Join-Path $setupVenvPath "Scripts\python.exe"
-$setupProviderVersion = "1.3.1"
-$setupProviderCommit = "7608dd51ee813b48cf9a6d68c6e42cb197ce10e0"
+$setupProviderVersion = "1.3.2"
+$setupProviderCommit = "7511309af023b09788dc8f2efc96cc3671291e6c"
 $setupProviderRoot = Join-Path $setupRepoRoot ".tools\bgutil-ytdlp-pot-provider-$setupProviderVersion"
 $setupProviderServer = Join-Path $setupProviderRoot "server"
-$setupProviderPatch = Join-Path $PSScriptRoot "patches\bgutil-ytdlp-pot-provider-1.3.1-loopback.patch"
+$setupProviderPatch = Join-Path $PSScriptRoot "patches\bgutil-ytdlp-pot-provider-1.3.2-loopback.patch"
 
 function Find-CompatiblePython {
     $setupCandidates = @(
