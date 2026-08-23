@@ -8,6 +8,7 @@ import pytest
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from settings import Settings
 from ytdlp_wrapper import (
     YtDlpError,
     build_search_sp,
@@ -15,6 +16,7 @@ from ytdlp_wrapper import (
     sanitize_channel_id,
     sanitize_playlist_id,
     sanitize_video_id,
+    ytdlp_network_args,
 )
 
 # =============================================================================
@@ -380,3 +382,41 @@ class TestYtDlpError:
         with pytest.raises(YtDlpError) as exc_info:
             raise YtDlpError("Test error")
         assert "Test error" in str(exc_info.value)
+
+
+# =============================================================================
+# Tests for ytdlp_network_args
+# =============================================================================
+
+
+class TestYtdlpNetworkArgs:
+    """Tests for network arg injection (egress proxy + forced IP family)."""
+
+    def test_no_proxy_no_family(self):
+        """Defaults produce no network args."""
+        assert ytdlp_network_args(Settings()) == []
+
+    def test_force_ipv6(self):
+        """Forced IPv6 without proxy adds --force-ipv6."""
+        assert ytdlp_network_args(Settings(yt_ip_family="ipv6")) == ["--force-ipv6"]
+
+    def test_force_ipv4(self):
+        """Forced IPv4 without proxy adds --force-ipv4."""
+        assert ytdlp_network_args(Settings(yt_ip_family="ipv4")) == ["--force-ipv4"]
+
+    def test_proxy_only(self):
+        """Active proxy adds --proxy and nothing else."""
+        s = Settings(yt_egress_proxy="http://proxy:8080", yt_egress_proxy_enabled=True)
+        assert ytdlp_network_args(s) == ["--proxy", "http://proxy:8080"]
+
+    def test_proxy_suppresses_family(self):
+        """Active proxy suppresses the forced family flag."""
+        s = Settings(yt_egress_proxy="http://proxy:8080", yt_egress_proxy_enabled=True, yt_ip_family="ipv6")
+        args = ytdlp_network_args(s)
+        assert args == ["--proxy", "http://proxy:8080"]
+        assert "--force-ipv6" not in args
+
+    def test_disabled_proxy_keeps_family(self):
+        """Disabled proxy lets the forced family flag through."""
+        s = Settings(yt_egress_proxy="http://proxy:8080", yt_egress_proxy_enabled=False, yt_ip_family="ipv6")
+        assert ytdlp_network_args(s) == ["--force-ipv6"]

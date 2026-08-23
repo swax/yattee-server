@@ -13,6 +13,7 @@ document.addEventListener('alpine:init', () => {
 
         yt_egress_proxy_enabled: true,
         yt_egress_proxy: '',
+        yt_ip_family: 'auto',
 
         innertube_enabled: true,
 
@@ -74,6 +75,7 @@ document.addEventListener('alpine:init', () => {
                 this.cache_extract_ttl = settings.cache_extract_ttl || 900;
                 this.yt_egress_proxy_enabled = settings.yt_egress_proxy_enabled !== false;
                 this.yt_egress_proxy = settings.yt_egress_proxy || '';
+                this.yt_ip_family = settings.yt_ip_family || 'auto';
                 this.innertube_enabled = settings.innertube_enabled !== false;
                 this.invidious_enabled = settings.invidious_enabled !== false;
                 this.invidious_instance = settings.invidious_instance || '';
@@ -128,6 +130,7 @@ document.addEventListener('alpine:init', () => {
                     cache_extract_ttl: parseInt(this.cache_extract_ttl) || 900,
                     yt_egress_proxy_enabled: this.yt_egress_proxy_enabled,
                     yt_egress_proxy: this.yt_egress_proxy || null,
+                    yt_ip_family: this.yt_ip_family || 'auto',
                     innertube_enabled: this.innertube_enabled,
                     invidious_enabled: this.invidious_enabled,
                     invidious_instance: this.invidious_instance || null,

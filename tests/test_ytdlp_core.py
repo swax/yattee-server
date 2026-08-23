@@ -17,6 +17,7 @@ async def test_run_ytdlp_uses_webpo_capable_mweb_client():
         ytdlp_path="yt-dlp",
         ytdlp_timeout=30,
         effective_yt_egress_proxy=lambda: None,
+        effective_ip_family=lambda: "auto",
     )
 
     with (
@@ -50,6 +51,7 @@ async def test_run_ytdlp_does_not_force_mweb_without_managed_provider():
         ytdlp_path="yt-dlp",
         ytdlp_timeout=30,
         effective_yt_egress_proxy=lambda: None,
+        effective_ip_family=lambda: "auto",
     )
 
     with (

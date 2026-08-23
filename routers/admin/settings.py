@@ -1,6 +1,6 @@
 """Settings and watched channels endpoints."""
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -46,6 +46,7 @@ class SettingsResponse(BaseModel):
     max_search_results: int
     yt_egress_proxy_enabled: bool
     yt_egress_proxy: Optional[str]
+    yt_ip_family: str
     innertube_enabled: bool
     invidious_enabled: bool
     invidious_instance: Optional[str]
@@ -90,6 +91,7 @@ class SettingsUpdate(BaseModel):
     max_search_results: Optional[int] = None
     yt_egress_proxy_enabled: Optional[bool] = None
     yt_egress_proxy: Optional[str] = None
+    yt_ip_family: Optional[Literal["auto", "ipv4", "ipv6"]] = None
     innertube_enabled: Optional[bool] = None
     invidious_enabled: Optional[bool] = None
     invidious_instance: Optional[str] = None
@@ -164,8 +166,9 @@ async def update_settings(data: SettingsUpdate, admin: dict = Depends(get_curren
         except ImportError:
             pass  # reset_caches not yet implemented
 
-    # Reset InnerTube httpx client when egress proxy changes (it's cached at module level)
-    if "yt_egress_proxy" in update_data or "yt_egress_proxy_enabled" in update_data:
+    # Reset InnerTube httpx client when egress proxy or IP family changes
+    # (it's cached at module level)
+    if any(k in update_data for k in ("yt_egress_proxy", "yt_egress_proxy_enabled", "yt_ip_family")):
         try:
             from innertube._client import reset_client
 

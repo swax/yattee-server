@@ -16,10 +16,12 @@ def apply_env_provisioning():
     - ADMIN_USERNAME + ADMIN_PASSWORD: creates or updates admin user
     - INVIDIOUS_INSTANCE_URL: configures Invidious instance and enables proxy
     - YT_EGRESS_PROXY: configures HTTP/SOCKS proxy for YouTube-bound traffic
+    - YT_IP_FAMILY: forces IP family (auto/ipv4/ipv6) for YouTube-bound traffic
     """
     _provision_admin_user()
     _provision_invidious()
     _provision_egress_proxy()
+    _provision_ip_family()
 
 
 def _provision_admin_user():
@@ -64,3 +66,20 @@ def _provision_egress_proxy():
     s.yt_egress_proxy_enabled = True
     settings_module.save_settings(s)
     logger.info("ENV provisioning: configured YT egress proxy")
+
+
+def _provision_ip_family():
+    """Configure forced IP family for YouTube egress from env var."""
+    family = config.YT_IP_FAMILY
+    if not family:
+        return
+
+    family = family.strip().lower()
+    if family not in ("auto", "ipv4", "ipv6"):
+        logger.warning("ENV provisioning: ignoring invalid YT_IP_FAMILY %r (use auto/ipv4/ipv6)", family)
+        return
+
+    s = settings_module.load_settings()
+    s.yt_ip_family = family
+    settings_module.save_settings(s)
+    logger.info("ENV provisioning: configured YT IP family '%s'", family)

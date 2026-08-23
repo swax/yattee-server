@@ -43,7 +43,9 @@ from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 import tokens as token_utils
+from egress import is_youtube_url, local_address_for
 from routers.proxy._streaming import router
+from settings import get_settings
 from ytdlp_wrapper import is_safe_url
 
 logger = logging.getLogger(__name__)
@@ -494,9 +496,23 @@ async def relay(
     client_range = request.headers.get("range")
     range_start, range_end = _parse_client_range(client_range)
 
+    # For YouTube-family hosts, honor the egress proxy / forced IP family.
+    # Other upstreams (LAN Invidious, generic sites) keep the plain client —
+    # an explicit transport would also disable HTTP(S)_PROXY env mounts.
+    # proxy and local_addr are never both set: effective_ip_family() returns
+    # "auto" while the proxy is active (httpx drops local_address otherwise).
+    transport = None
+    if is_youtube_url(url):
+        s = get_settings()
+        proxy = s.effective_yt_egress_proxy()
+        local_addr = local_address_for(s.effective_ip_family())
+        if proxy or local_addr:
+            transport = httpx.AsyncHTTPTransport(proxy=proxy, local_address=local_addr)
+
     client = httpx.AsyncClient(
         timeout=httpx.Timeout(connect=10.0, read=None, write=30.0, pool=10.0),
         follow_redirects=True,
+        **({"transport": transport} if transport else {}),
     )
 
     # --- Meta probe: tiny first request to discover total/status/type ----

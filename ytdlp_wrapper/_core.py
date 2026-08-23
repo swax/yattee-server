@@ -19,6 +19,24 @@ def _po_token_player_args() -> List[str]:
     return YOUTUBE_PLAYER_ARGS if enabled else []
 
 
+def ytdlp_network_args(s) -> List[str]:
+    """Network-related yt-dlp args from settings: egress proxy + forced IP family.
+
+    effective_ip_family() returns "auto" while the proxy is active, so the
+    force flag never applies to the hop to the proxy.
+    """
+    args = []
+    proxy = s.effective_yt_egress_proxy()
+    if proxy:
+        args.extend(["--proxy", proxy])
+    family = s.effective_ip_family()
+    if family == "ipv6":
+        args.append("--force-ipv6")
+    elif family == "ipv4":
+        args.append("--force-ipv4")
+    return args
+
+
 def _separate_flags_and_urls(args: tuple) -> Tuple[List[str], List[str]]:
     """Separate yt-dlp arguments into flags and URLs.
 
@@ -79,15 +97,12 @@ async def run_ytdlp(*args: str, timeout: Optional[int] = None, url: Optional[str
         except (ValueError, KeyError, OSError) as e:
             logger.warning(f"Failed to load credentials for {url}: {e}")
 
-    proxy = s.effective_yt_egress_proxy()
-    proxy_args = ["--proxy", proxy] if proxy else []
-
     # mweb is a WebPO-capable client. The local bgutil provider can mint the
     # GVS token now required by YouTube for adaptive media requests.
     #
-    # Build final args: proxy + credentials + YouTube client + flags + '--' + urls
+    # Build final args: network + credentials + YouTube client + flags + '--' + urls
     # The '--' separator prevents URLs from being interpreted as flags
-    all_args = proxy_args + list(cred_args) + _po_token_player_args() + flags
+    all_args = ytdlp_network_args(s) + list(cred_args) + _po_token_player_args() + flags
     if urls:
         all_args.append("--")
         all_args.extend(urls)

@@ -11,6 +11,7 @@ from ytdlp_wrapper._captions import fetch_caption_content, get_caption_url
 from ytdlp_wrapper._core import (
     _separate_flags_and_urls,
     run_ytdlp,
+    ytdlp_network_args,
 )
 from ytdlp_wrapper._extract import extract_channel_url, extract_url
 from ytdlp_wrapper._sanitize import (
@@ -54,6 +55,7 @@ __all__ = [
     # _core
     "_separate_flags_and_urls",
     "run_ytdlp",
+    "ytdlp_network_args",
     # _youtube
     "build_search_sp",
     "get_video_info",

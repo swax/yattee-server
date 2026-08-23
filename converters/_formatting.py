@@ -1,5 +1,7 @@
 """Date, time, and count formatting utilities."""
 
+import re
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -57,6 +59,39 @@ def format_published_text(upload_date: Optional[str]) -> Optional[str]:
             return f"{years} year{'s' if years > 1 else ''} ago"
     except ValueError:
         return None
+
+
+def parse_relative_time(text: Optional[str]) -> Optional[int]:
+    """Parse relative time text like '2 days ago' into an approximate Unix timestamp.
+
+    Returns None if the text can't be parsed.
+    """
+    if not text:
+        return None
+
+    text = text.lower().strip()
+    match = re.match(r"(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago", text)
+    if not match:
+        # Handle "Streamed X ago" format
+        match = re.match(r"streamed\s+(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago", text)
+    if not match:
+        return None
+
+    num = int(match.group(1))
+    unit = match.group(2)
+
+    multipliers = {
+        "second": 1,
+        "minute": 60,
+        "hour": 3600,
+        "day": 86400,
+        "week": 604800,
+        "month": 2592000,  # ~30 days
+        "year": 31536000,  # ~365 days
+    }
+
+    seconds_ago = num * multipliers.get(unit, 0)
+    return int(time.time()) - seconds_ago
 
 
 def format_view_count(count: Optional[int]) -> Optional[str]:
