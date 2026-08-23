@@ -9,6 +9,7 @@ import pytest
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+import routers.videos as videos_module
 
 # =============================================================================
 # Fixtures
@@ -139,6 +140,55 @@ def sample_channel_entries():
 
 
 # =============================================================================
+# Fresh relay stream availability
+# =============================================================================
+
+
+class TestRelayStreamAvailability:
+    def test_uses_latest_format_deadline(self):
+        info = {
+            "formats": [
+                {"format_id": "18", "available_at": 1003},
+                {"format_id": "140", "available_at": 1005},
+                {"format_id": "storyboard"},
+            ]
+        }
+
+        assert videos_module._relay_stream_availability_delay(info, now=1000.25) == pytest.approx(4.75)
+
+    @pytest.mark.parametrize(
+        ("info", "now"),
+        [
+            ({}, 1000),
+            ({"formats": None}, 1000),
+            ({"formats": [{"available_at": 999}]}, 1000),
+            ({"formats": [{"available_at": "1005"}]}, 1000),
+            ({"formats": [{"available_at": True}]}, 1000),
+        ],
+    )
+    def test_missing_past_or_invalid_deadlines_do_not_delay(self, info, now):
+        assert videos_module._relay_stream_availability_delay(info, now=now) == 0
+
+    async def test_waits_once_for_remaining_interval(self, monkeypatch):
+        sleep = AsyncMock()
+        monkeypatch.setattr(videos_module, "_relay_stream_availability_delay", lambda _info: 4.75)
+        monkeypatch.setattr(videos_module.asyncio, "sleep", sleep)
+
+        await videos_module._wait_for_relay_stream_availability({"formats": []})
+
+        sleep.assert_awaited_once_with(4.75)
+
+    async def test_does_not_sleep_when_streams_are_already_available(self, monkeypatch):
+        sleep = AsyncMock()
+        monkeypatch.setattr(videos_module, "_relay_stream_availability_delay", lambda _info: 0)
+        monkeypatch.setattr(videos_module.asyncio, "sleep", sleep)
+
+        await videos_module._wait_for_relay_stream_availability({"formats": []})
+
+        sleep.assert_not_awaited()
+
+
+# =============================================================================
 # Tests for GET /api/v1/videos/{video_id}
 # =============================================================================
 
@@ -189,9 +239,32 @@ class TestGetVideo:
 
         assert response.status_code == 200
         data = response.json()
-        # With proxy=true, stream URLs should point to /proxy/fast/
+        # Relay is the default proxy mode for playback requests.
         for stream in data.get("formatStreams", []) + data.get("adaptiveFormats", []):
-            assert "/proxy/" in stream["url"] or "token=" in stream["url"]
+            assert "/proxy/relay" in stream["url"]
+
+    def test_relay_waits_for_fresh_ytdlp_streams_before_responding(self, sample_ytdlp_video):
+        """Relay responses honour yt-dlp's pre-roll availability gate."""
+        with (
+            patch(
+                "routers.videos.get_video_info",
+                new_callable=AsyncMock,
+                return_value=sample_ytdlp_video,
+            ),
+            patch("routers.videos.invidious_proxy.is_enabled", return_value=False),
+            patch("routers.videos.avatar_cache.get_cache") as mock_cache,
+            patch(
+                "routers.videos._wait_for_relay_stream_availability",
+                new_callable=AsyncMock,
+            ) as wait_for_streams,
+        ):
+            mock_cache.return_value.schedule_background_fetch = MagicMock()
+            response = self.client.get(
+                "/api/v1/videos/dQw4w9WgXcQ?proxy=true&proxy_mode=relay&invidious=false"
+            )
+
+        assert response.status_code == 200
+        wait_for_streams.assert_awaited_once_with(sample_ytdlp_video)
 
     def test_get_video_invidious_override_true(self, sample_invidious_video):
         """Test invidious=true query param forces Invidious proxy."""

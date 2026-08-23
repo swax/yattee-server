@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -34,6 +35,34 @@ from ytdlp_wrapper import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["videos"])
+
+
+def _relay_stream_availability_delay(info: dict, now: Optional[float] = None) -> float:
+    """Return how long yt-dlp says freshly extracted media URLs must wait.
+
+    YouTube can return a valid signed URL alongside a pre-roll ad and reject
+    that URL with HTTP 403 until the ad reaches its skip/end time. yt-dlp puts
+    the resulting Unix deadline in each format's ``available_at`` field and
+    honours it in its own downloader. Relay responses must do the same before
+    exposing those URLs to media clients.
+    """
+    current_time = time.time() if now is None else now
+    deadlines = [
+        float(value)
+        for fmt in info.get("formats") or []
+        if isinstance(fmt, dict)
+        and isinstance((value := fmt.get("available_at")), (int, float))
+        and not isinstance(value, bool)
+    ]
+    return max(0.0, max(deadlines, default=0.0) - current_time)
+
+
+async def _wait_for_relay_stream_availability(info: dict) -> None:
+    delay = _relay_stream_availability_delay(info)
+    if delay <= 0:
+        return
+    logger.info(f"[Videos] Waiting {delay:.2f}s for freshly extracted relay streams to become available")
+    await asyncio.sleep(delay)
 
 
 def validate_extractor_allowed(extractor: str):
@@ -260,6 +289,9 @@ async def _get_video_hybrid(
         info = ytdlp_result
     else:
         info = await get_video_info(video_id)
+
+    if proxy_streams and proxy_mode == "relay":
+        await _wait_for_relay_stream_availability(info)
 
     # Live video or InnerTube unavailable → yt-dlp alone
     if it_video is None or it_video.get("liveNow", False):
