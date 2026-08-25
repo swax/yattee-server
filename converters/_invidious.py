@@ -86,10 +86,11 @@ def invidious_to_video_response(
 
     video_id = info.get("videoId", "")
 
-    # Generate token if user_id is provided (basic auth enabled)
-    # Stream token is used for proxy stream URLs (requires proxy_streams=True)
+    # Generate a token whenever the response is authenticated. Proxied stream
+    # URLs embed it directly; direct-stream responses expose it separately so
+    # the watch page can authenticate an on-demand /proxy/fast download.
     stream_token = None
-    if user_id is not None and proxy_streams and video_id:
+    if user_id is not None and video_id:
         stream_token = token_utils.generate_stream_token(user_id, video_id)
 
     # Caption token is used for caption content URLs (always when user_id is set)
@@ -321,6 +322,7 @@ def invidious_to_video_response(
         captions=captions,
         storyboards=storyboards,
         recommendedVideos=recommended_videos,
+        downloadToken=stream_token,
     )
 
 

@@ -18,9 +18,11 @@ builds on upstream version `v1.0.7` with these fork-specific additions:
 - Runtime browser access controls for managing CORS origins from the admin panel
 - Native Windows setup and startup scripts, including a managed local YouTube
   PO-token provider
-- A hardened media relay with adaptive downloads, yt-dlp pre-roll availability
-  timing, upstream error backoff, corrected media content types, and signed-URL
-  redaction in access logs
+- Adaptive media downloads, including selectable video and audio streams merged
+  through FFmpeg
+- Media relay reliability improvements, including yt-dlp pre-roll availability
+  timing, upstream error backoff, and corrected media content types
+- Signed-URL redaction in access logs
 
 See the
 [full comparison with upstream](https://github.com/yattee/yattee-server/compare/main...swax:main)

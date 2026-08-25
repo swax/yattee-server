@@ -118,6 +118,7 @@ class VideoResponse(BaseModel):
     # Extended fields for external (non-YouTube) sources
     extractor: Optional[str] = None  # Site identifier (e.g., "vimeo", "twitter")
     originalUrl: Optional[str] = None  # Original URL for re-extraction on stream expiry
+    downloadToken: Optional[str] = None  # Signed token for authenticated /proxy/fast downloads
     # Recommended videos (only available when using Invidious proxy)
     recommendedVideos: Optional[List["VideoListItem"]] = None
     # Which extraction path served this response: "invidious", "hybrid" (InnerTube + yt-dlp), "ytdlp"

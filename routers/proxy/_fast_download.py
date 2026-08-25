@@ -33,13 +33,49 @@ from ytdlp_wrapper import (
 logger = logging.getLogger(__name__)
 
 
+def _find_format_by_itag(formats: list[dict], itag: str) -> dict | None:
+    """Find an extracted format, accepting yt-dlp's suffixed itag variants."""
+    for fmt in formats:
+        format_id = str(fmt.get("format_id", ""))
+        if format_id == itag or format_id.startswith(f"{itag}-"):
+            return fmt
+    return None
+
+
+def _merged_container(video_format: dict, audio_format: dict) -> str:
+    """Choose a lossless output container compatible with both selected streams."""
+    video_ext = str(video_format.get("ext") or "").lower()
+    audio_ext = str(audio_format.get("ext") or "").lower()
+
+    if video_ext == "mp4" and audio_ext in {"m4a", "mp4"}:
+        return "mp4"
+    if video_ext == "webm" and audio_ext in {"webm", "opus"}:
+        return "webm"
+    return "mkv"
+
+
+def _video_content_type(ext: str) -> str:
+    """Return the correct media type for a merged video container."""
+    return {
+        "mkv": "video/x-matroska",
+        "mp4": "video/mp4",
+        "webm": "video/webm",
+    }.get(ext, f"video/{ext}")
+
+
 # =============================================================================
 # Fast Download Endpoint - Uses yt-dlp parallel downloading
 # =============================================================================
 
 
 async def run_ytdlp_download(
-    video_id: str, itag: str, output_path: Path, download_key: str, video_url: str = None, max_retries: int = 3
+    video_id: str,
+    itag: str,
+    output_path: Path,
+    download_key: str,
+    video_url: str = None,
+    max_retries: int = 3,
+    merge_output_format: str = None,
 ):
     """Run yt-dlp download in background and track progress.
 
@@ -70,10 +106,15 @@ async def run_ytdlp_download(
             itag,
             "--no-part",  # Don't use .part files
             "--no-mtime",  # Don't set file modification time
-            "--socket-timeout", "30",  # Longer socket timeout
-            "--retries", "10",  # More retries on network errors
-            "--fragment-retries", "10",  # Retry individual fragments
-            "--retry-sleep", "linear=1::5",  # Linear backoff 1-5s between retries
+            "--socket-timeout",
+            "30",  # Longer socket timeout
+            "--retries",
+            "10",  # More retries on network errors
+            "--fragment-retries",
+            "10",  # Retry individual fragments
+            "--retry-sleep",
+            "linear=1::5",  # Linear backoff 1-5s between retries
+            *(["--merge-output-format", merge_output_format, "--force-overwrites"] if merge_output_format else []),
             "-o",
             str(output_path),
             url,
@@ -107,7 +148,7 @@ async def run_ytdlp_download(
             try:
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(),
-                    timeout=600  # 10 minute timeout for yt-dlp
+                    timeout=600,  # 10 minute timeout for yt-dlp
                 )
             except asyncio.TimeoutError:
                 logger.error(f"[FastDownload] yt-dlp timed out after 600s: {video_id} ({itag})")
@@ -164,11 +205,23 @@ async def run_ytdlp_download(
 
 
 async def _rate_limited_download(
-    video_id: str, itag: str, output_path: Path, download_key: str, video_url: str = None
+    video_id: str,
+    itag: str,
+    output_path: Path,
+    download_key: str,
+    video_url: str = None,
+    merge_output_format: str = None,
 ):
     """Run download with rate limiting via semaphore."""
     async with get_download_semaphore():
-        await run_ytdlp_download(video_id, itag, output_path, download_key, video_url)
+        await run_ytdlp_download(
+            video_id,
+            itag,
+            output_path,
+            download_key,
+            video_url,
+            merge_output_format=merge_output_format,
+        )
 
 
 async def stream_file_as_it_downloads(file_path: Path, download_key: str, expected_size: int):
@@ -176,7 +229,10 @@ async def stream_file_as_it_downloads(file_path: Path, download_key: str, expect
     bytes_sent = 0
     chunk_size = 256 * 1024  # 256KB chunks
     stall_count = 0
-    max_stalls = 1800  # 180 seconds max wait (1800 * 0.1s) - increased for long videos
+    # Merged downloads do not create their final output file until both source
+    # streams have downloaded and FFmpeg starts muxing them. Match the yt-dlp
+    # subprocess timeout, plus a small cushion, before treating that as a stall.
+    max_stalls = 6600  # 11 minutes (6600 * 0.1s)
 
     while True:
         # Check download status
@@ -223,8 +279,7 @@ async def stream_file_as_it_downloads(file_path: Path, download_key: str, expect
         stall_count += 1
         if stall_count > max_stalls:
             logger.error(
-                f"[FastDownload] Stream stalled for too long "
-                f"(sent {bytes_sent} bytes, expected {expected_size})"
+                f"[FastDownload] Stream stalled for too long (sent {bytes_sent} bytes, expected {expected_size})"
             )
             # Mark download as stalled so subsequent requests will restart it
             async with _downloads_lock:
@@ -240,6 +295,8 @@ async def fast_download(
     video_id: str,
     request: Request,
     itag: str = None,
+    video_itag: str = None,
+    audio_itag: str = None,
     format: str = "best",
     url: str = None,
     token: str = None,
@@ -253,11 +310,19 @@ async def fast_download(
     Args:
         video_id: YouTube video ID (or external site video ID)
         itag: Specific format itag to use
+        video_itag: Video-only format to merge with audio_itag
+        audio_itag: Audio-only format to merge with video_itag
         format: Format selector (best, bestvideo, bestaudio)
         url: Original URL for external sites (required for non-YouTube)
         token: Streaming token (required when basic auth is enabled)
     """
-    logger.info(f"[FastDownload] Request received: video_id={video_id}, itag={itag}, format={format}")
+    logger.info(
+        f"[FastDownload] Request received: video_id={video_id}, itag={itag}, "
+        f"video_itag={video_itag}, audio_itag={audio_itag}, format={format}"
+    )
+
+    if bool(video_itag) != bool(audio_itag):
+        raise HTTPException(status_code=400, detail="video_itag and audio_itag must be provided together")
 
     # SSRF prevention - validate URL if provided
     if url:
@@ -279,46 +344,67 @@ async def fast_download(
             info = await get_video_info(video_id)
         formats = info.get("formats", [])
 
-        # Find the requested format
-        selected_format = None
-        if itag:
-            # yt-dlp returns format_ids like "251-drc", "251-0", "140-1" etc.
-            # but Invidious-compatible API returns just "251", "140"
-            # So we need to match formats that start with the itag
-            for fmt in formats:
-                format_id = str(fmt.get("format_id", ""))
-                # Exact match or match with suffix (e.g., "251" matches "251-drc", "251-0")
-                if format_id == itag or format_id.startswith(f"{itag}-"):
-                    selected_format = fmt
-                    break
+        merge_output_format = None
+        if video_itag and audio_itag:
+            # Paired requests losslessly mux one video-only and one audio-only
+            # stream. Resolve IDs from fresh metadata before constructing the
+            # yt-dlp selector so untrusted query text never reaches the command.
+            selected_video = _find_format_by_itag(formats, video_itag)
+            selected_audio = _find_format_by_itag(formats, audio_itag)
 
-            # If no exact match found for external sites, fallback to quality-based matching
-            # External site format IDs (like Facebook) can change between extractions
-            if not selected_format and url:
-                logger.warning(f"[FastDownload] No exact itag match for {itag}, falling back to quality matching")
-                logger.debug(f"[FastDownload] Available formats: {[f.get('format_id') for f in formats]}")
+            if not selected_video or not selected_audio:
+                raise HTTPException(status_code=404, detail="Selected video or audio format was not found")
+            if selected_video.get("vcodec") in {None, "none"} or selected_video.get("acodec") != "none":
+                raise HTTPException(status_code=400, detail="video_itag must identify a video-only format")
+            if selected_audio.get("vcodec") != "none" or selected_audio.get("acodec") in {None, "none"}:
+                raise HTTPException(status_code=400, detail="audio_itag must identify an audio-only format")
 
-                # Check if itag indicates video (ends with 'v') or audio (ends with 'a')
-                is_video_format = itag.endswith("v") or not itag.endswith("a")
+            video_format_id = str(selected_video.get("format_id", ""))
+            audio_format_id = str(selected_audio.get("format_id", ""))
+            format_id = f"{video_format_id}+{audio_format_id}"
+            ext = _merged_container(selected_video, selected_audio)
+            filesize = sum(
+                int(fmt.get("filesize") or fmt.get("filesize_approx") or 0) for fmt in (selected_video, selected_audio)
+            )
 
-                if is_video_format:
-                    # Try video formats (both muxed and video-only)
-                    video_formats = [f for f in formats if f.get("vcodec") != "none"]
-                    if video_formats:
-                        # Sort by quality (height, then bitrate)
-                        selected_format = max(
-                            video_formats, key=lambda x: (x.get("height", 0) or 0, x.get("tbr", 0) or 0)
-                        )
-                else:
-                    # Audio format
-                    audio_formats = [f for f in formats if f.get("vcodec") == "none" and f.get("acodec") != "none"]
-                    if audio_formats:
-                        selected_format = max(audio_formats, key=lambda x: x.get("abr", 0) or 0)
+            try:
+                safe_video_id = sanitize_format_id(video_format_id)
+                safe_audio_id = sanitize_format_id(audio_format_id)
+                safe_format_id = f"{safe_video_id}_{safe_audio_id}"
+                safe_ext = sanitize_extension(ext)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
 
-                if selected_format:
-                    logger.info(f"[FastDownload] Quality fallback selected format: {selected_format.get('format_id')}")
+            content_type = _video_content_type(safe_ext)
+            merge_output_format = safe_ext
         else:
-            if format == "bestaudio":
+            # Preserve the existing single-format download behavior.
+            selected_format = None
+            if itag:
+                selected_format = _find_format_by_itag(formats, itag)
+
+                # External-site format IDs can change between extractions.
+                if not selected_format and url:
+                    logger.warning(f"[FastDownload] No exact itag match for {itag}, falling back to quality matching")
+                    logger.debug(f"[FastDownload] Available formats: {[f.get('format_id') for f in formats]}")
+                    is_video_format = itag.endswith("v") or not itag.endswith("a")
+
+                    if is_video_format:
+                        video_formats = [f for f in formats if f.get("vcodec") != "none"]
+                        if video_formats:
+                            selected_format = max(
+                                video_formats, key=lambda x: (x.get("height", 0) or 0, x.get("tbr", 0) or 0)
+                            )
+                    else:
+                        audio_formats = [f for f in formats if f.get("vcodec") == "none" and f.get("acodec") != "none"]
+                        if audio_formats:
+                            selected_format = max(audio_formats, key=lambda x: x.get("abr", 0) or 0)
+
+                    if selected_format:
+                        logger.info(
+                            f"[FastDownload] Quality fallback selected format: {selected_format.get('format_id')}"
+                        )
+            elif format == "bestaudio":
                 audio_formats = [f for f in formats if f.get("vcodec") == "none" and f.get("acodec") != "none"]
                 if audio_formats:
                     selected_format = max(audio_formats, key=lambda x: x.get("abr", 0) or 0)
@@ -331,25 +417,23 @@ async def fast_download(
                 if muxed_formats:
                     selected_format = max(muxed_formats, key=lambda x: (x.get("height", 0) or 0, x.get("tbr", 0) or 0))
 
-        if not selected_format:
-            raise HTTPException(status_code=404, detail="No suitable format found")
+            if not selected_format:
+                raise HTTPException(status_code=404, detail="No suitable format found")
 
-        format_id = selected_format.get("format_id")
-        ext = selected_format.get("ext", "mp4")
-        filesize = selected_format.get("filesize") or selected_format.get("filesize_approx") or 0
+            format_id = str(selected_format.get("format_id", ""))
+            ext = selected_format.get("ext", "mp4")
+            filesize = selected_format.get("filesize") or selected_format.get("filesize_approx") or 0
 
-        # Sanitize format_id and ext to prevent path traversal
-        try:
-            safe_format_id = sanitize_format_id(format_id)
-            safe_ext = sanitize_extension(ext)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            try:
+                safe_format_id = sanitize_format_id(format_id)
+                safe_ext = sanitize_extension(ext)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
 
-        # Determine content type
-        if selected_format.get("vcodec") != "none":
-            content_type = f"video/{safe_ext}"
-        else:
-            content_type = f"audio/{safe_ext}"
+            if selected_format.get("vcodec") != "none":
+                content_type = f"video/{safe_ext}"
+            else:
+                content_type = f"audio/{safe_ext}"
 
         download_key = f"{video_id}_{safe_format_id}"
         output_path = DOWNLOADS_DIR / f"{download_key}.{safe_ext}"
@@ -384,7 +468,7 @@ async def fast_download(
                 # 2. Download is "complete" but file is missing/empty (previous stream consumed it), OR
                 # 3. Download is in-progress but file doesn't exist and started >60s ago (stale)
                 start_time = existing.get("start_time", 0)
-                is_stale = (not is_complete and not file_exists and (time.time() - start_time > 60))
+                is_stale = not is_complete and not file_exists and (time.time() - start_time > 60)
 
                 if has_error or (is_complete and not file_exists) or is_stale:
                     logger.info(
@@ -411,7 +495,14 @@ async def fast_download(
 
                 # Start yt-dlp download in background (rate-limited)
                 asyncio.create_task(
-                    _rate_limited_download(video_id, format_id, output_path, download_key, video_url=url)
+                    _rate_limited_download(
+                        video_id,
+                        format_id,
+                        output_path,
+                        download_key,
+                        video_url=url,
+                        merge_output_format=merge_output_format,
+                    )
                 )
                 logger.info(f"[FastDownload] Started new download: {download_key}")
 

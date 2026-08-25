@@ -3,6 +3,7 @@
 import urllib.parse
 from typing import Optional
 
+import tokens as token_utils
 from converters._captions import convert_captions
 from converters._formats import convert_formats, convert_thumbnails
 from converters._formatting import (
@@ -161,6 +162,8 @@ def ytdlp_to_video_response(
     if not author_url and author_id:
         author_url = construct_author_url(extractor, author_id, original_url)
 
+    download_token = token_utils.generate_stream_token(user_id, video_id) if user_id is not None and video_id else None
+
     return VideoResponse(
         videoId=video_id,
         title=info.get("title", ""),
@@ -191,6 +194,7 @@ def ytdlp_to_video_response(
         storyboards=storyboards,
         extractor=extractor,
         originalUrl=original_url,
+        downloadToken=download_token,
     )
 
 
