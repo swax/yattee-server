@@ -1,6 +1,7 @@
 {
   "private": true,
   "scripts": {
+    "run:video-bridge": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-windows.ps1",
     "postinstall": "node scripts/copy-vendor.js"
   },
   "dependencies": {
